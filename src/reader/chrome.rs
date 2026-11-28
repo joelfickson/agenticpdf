@@ -70,6 +70,7 @@ pub(super) enum Input {
     Page,
     Agent,
     SignName,
+    Password,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,6 +96,8 @@ pub(super) struct Toast {
 
 pub(super) use crate::preferences::{PageColour, PageLayout as Layout};
 
+const MAX_PASSWORD_CHARACTERS: usize = 1024;
+
 pub(super) struct Chrome {
     pub layout: Layout,
     pub page_colour: PageColour,
@@ -112,6 +115,8 @@ pub(super) struct Chrome {
     pub palette_index: usize,
     pub page_input: TextField,
     pub sign_name: TextField,
+    pub password: TextField,
+    pub password_shown: bool,
     pub input: Input,
     pub toast: Option<Toast>,
     toast_counter: u64,
@@ -152,6 +157,8 @@ impl Chrome {
             palette_index: 0,
             page_input: TextField::digits(6),
             sign_name: TextField::limited(super::typeset::MAX_NAME_CHARACTERS),
+            password: TextField::limited(MAX_PASSWORD_CHARACTERS),
+            password_shown: false,
             input: Input::None,
             toast: None,
             toast_counter: 0,

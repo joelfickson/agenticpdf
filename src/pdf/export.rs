@@ -94,7 +94,12 @@ fn strip_marks(document: &PdfDocument<'_>) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn combine(engine: &Pdfium, files: &[PathBuf], to: &Path) -> Result<Vec<PathBuf>> {
+pub(super) fn combine<'k>(
+    engine: &Pdfium,
+    files: &[PathBuf],
+    to: &Path,
+    password: impl Fn(&Path) -> Option<&'k str>,
+) -> Result<Vec<PathBuf>> {
     if files.len() < 2 {
         bail!("Choose at least two PDFs to combine.");
     }
@@ -104,7 +109,7 @@ pub(super) fn combine(engine: &Pdfium, files: &[PathBuf], to: &Path) -> Result<V
         .context("A new PDF could not be created.")?;
     for file in files {
         let part = engine
-            .load_pdf_from_file(file, None)
+            .load_pdf_from_file(file, password(file))
             .with_context(|| format!("{} could not be opened.", file.display()))?;
         combined
             .pages_mut()
@@ -118,9 +123,14 @@ pub(super) fn combine(engine: &Pdfium, files: &[PathBuf], to: &Path) -> Result<V
 }
 
 impl<'a> Active<'a> {
-    pub(super) fn start(engine: &'a Pdfium, id: u64, export: Export) -> Result<Self> {
+    pub(super) fn start(
+        engine: &'a Pdfium,
+        id: u64,
+        export: Export,
+        password: Option<&str>,
+    ) -> Result<Self> {
         let mut document = engine
-            .load_pdf_from_file(&export.source, None)
+            .load_pdf_from_file(&export.source, password)
             .context("The PDF could not be opened for export.")?;
         let count = document.pages().len() as usize;
         let pages: Vec<usize> = match export.page {

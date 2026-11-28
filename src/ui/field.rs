@@ -17,6 +17,7 @@ pub(crate) struct TextField {
     cursor: usize,
     limit: Option<usize>,
     digits_only: bool,
+    selected: bool,
 }
 
 impl TextField {
@@ -38,6 +39,16 @@ impl TextField {
     pub fn clear(&mut self) {
         self.text.clear();
         self.cursor = 0;
+        self.selected = false;
+    }
+
+    pub fn select_all(&mut self) {
+        self.cursor = self.len();
+        self.selected = !self.text.is_empty();
+    }
+
+    pub fn selected(&self) -> bool {
+        self.selected
     }
 
     pub fn before_cursor(&self) -> &str {
@@ -68,6 +79,9 @@ impl TextField {
         if accepted.is_empty() {
             return false;
         }
+        if self.selected {
+            self.clear();
+        }
         let count = accepted.chars().count();
         if let Some(limit) = self.limit
             && self.len() + count > limit
@@ -83,6 +97,13 @@ impl TextField {
     pub fn handle(&mut self, keystroke: &Keystroke) -> FieldKey {
         let modifiers = keystroke.modifiers;
         let jump = modifiers.platform || modifiers.alt;
+        if self.selected && matches!(keystroke.key.as_str(), "backspace" | "delete") {
+            self.clear();
+            return FieldKey::Edited;
+        }
+        if matches!(keystroke.key.as_str(), "left" | "right" | "home" | "end") {
+            self.selected = false;
+        }
         match keystroke.key.as_str() {
             "enter" => return FieldKey::Submit,
             "escape" => return FieldKey::Cancel,
@@ -187,6 +208,29 @@ mod tests {
         assert_eq!(field.before_cursor(), "caé");
         field.handle(&key("cmd-backspace"));
         assert!(field.text.is_empty());
+    }
+
+    #[test]
+    fn selected_text_is_replaced_by_typing_and_cleared_by_backspace() {
+        let mut field = TextField::default();
+        field.insert("wrong");
+        field.select_all();
+        assert!(field.selected());
+        field.handle(&key("r->r"));
+        assert_eq!(field.text, "r");
+        assert!(!field.selected());
+        field.insert("ight");
+        field.select_all();
+        assert_eq!(field.handle(&key("backspace")), FieldKey::Edited);
+        assert!(field.text.is_empty());
+        field.insert("kept");
+        field.select_all();
+        field.handle(&key("left"));
+        field.handle(&key("s->s"));
+        assert_eq!(field.text, "kepst");
+        let mut empty = TextField::default();
+        empty.select_all();
+        assert!(!empty.selected());
     }
 
     #[test]

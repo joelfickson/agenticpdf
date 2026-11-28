@@ -1715,6 +1715,104 @@ fn typed_signatures_take_keystrokes_and_place_the_drawn_name(cx: &mut TestAppCon
     cx.read(|cx| assert!(reader.read(cx).placing_signature().is_none()));
 }
 
+#[gpui::test]
+fn locked_pdfs_ask_in_the_tab_retry_cancel_and_unlock(cx: &mut TestAppContext) {
+    use tabs::Lock;
+
+    cx.update(|cx| cx.bind_keys(crate::app::bindings()));
+    let (_sender, events) = async_channel::bounded(2);
+    let (reader, cx) = cx
+        .add_window_view(|window, cx| Reader::new(Vec::new(), Worker::idle(), events, window, cx));
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let locked = root.join("tests/fixtures/locked.pdf");
+    let lock = |cx: &mut gpui::VisualTestContext| {
+        cx.read(|cx| reader.read(cx).tabs.current().and_then(|tab| tab.lock))
+    };
+    cx.update(|window, cx| {
+        reader.update(cx, |reader, cx| {
+            reader.focus.focus(window);
+            reader.open_paths(vec![locked.clone()], window, cx);
+            let generation = reader.generation;
+            reader.receive(Event::Locked { generation }, window, cx);
+            assert_eq!(reader.chrome.input, chrome::Input::Password);
+            reader.last_request = None;
+            reader.request(window);
+            assert!(reader.last_request.is_none());
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(lock(cx), Some(Lock::Asking));
+
+    cx.simulate_keystrokes("n o p e enter");
+    assert_eq!(lock(cx), Some(Lock::Checking));
+    cx.update(|window, cx| {
+        reader.update(cx, |reader, cx| {
+            let session = reader.tabs.current().unwrap().session;
+            assert_eq!(
+                reader.worker.queued_unlocks(),
+                vec![(session, "nope".into())]
+            );
+            assert!(reader.last_request.is_some());
+            let generation = reader.generation;
+            reader.receive(Event::Locked { generation }, window, cx);
+            assert!(reader.chrome.password.selected());
+            assert_eq!(reader.chrome.password.text, "nope");
+        })
+    });
+    assert_eq!(lock(cx), Some(Lock::Wrong));
+    cx.run_until_parked();
+
+    cx.simulate_keystrokes("f i x t u r e enter");
+    cx.update(|window, cx| {
+        reader.update(cx, |reader, cx| {
+            assert_eq!(reader.worker.queued_unlocks().last().unwrap().1, "fixture");
+            let generation = reader.generation;
+            reader.receive(
+                Event::Metadata {
+                    generation,
+                    count: 3,
+                    sizes: None,
+                },
+                window,
+                cx,
+            );
+            assert!(reader.chrome.password.text.is_empty());
+            assert_eq!(reader.chrome.input, chrome::Input::None);
+        })
+    });
+    assert_eq!(lock(cx), None);
+
+    cx.update(|window, cx| {
+        reader.update(cx, |reader, cx| {
+            reader.close_tab_now(0, window, cx);
+            reader.open_paths(
+                vec![root.join("tests/fixtures/reading.pdf"), locked.clone()],
+                window,
+                cx,
+            );
+            let generation = reader.generation;
+            reader.receive(Event::Locked { generation }, window, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("s escape");
+    assert_eq!(lock(cx), Some(Lock::Cancelled));
+    cx.update(|window, cx| {
+        reader.update(cx, |reader, cx| {
+            assert_eq!(reader.chrome.input, chrome::Input::None);
+            assert!(reader.chrome.password.text.is_empty());
+            reader.ask_password(cx);
+            assert_eq!(reader.chrome.input, chrome::Input::Password);
+            reader.activate_tab(0, window, cx);
+            assert_eq!(reader.chrome.input, chrome::Input::None);
+            reader.activate_tab(1, window, cx);
+            assert_eq!(reader.chrome.input, chrome::Input::Password);
+            reader.close_tab_now(1, window, cx);
+            assert_eq!(reader.chrome.input, chrome::Input::None);
+        })
+    });
+}
+
 fn sweep_mouse(cx: &mut gpui::VisualTestContext) {
     let size = cx.update(|window, _| window.viewport_size());
     let mut y = px(4.0);
@@ -1926,6 +2024,33 @@ fn every_screen_renders_and_survives_hover_in_both_themes(cx: &mut TestAppContex
         }),
         ("error", |r, _, cx| {
             r.tabs.current_mut().unwrap().error = Some("Could not open this PDF.".into());
+            cx.notify();
+        }),
+        ("password", |r, _, cx| {
+            r.tabs.current_mut().unwrap().lock = Some(tabs::Lock::Asking);
+            r.chrome.input = chrome::Input::Password;
+            cx.notify();
+        }),
+        ("password wrong", |r, _, cx| {
+            r.tabs.current_mut().unwrap().lock = Some(tabs::Lock::Wrong);
+            r.chrome.input = chrome::Input::Password;
+            r.chrome.password.insert("guess");
+            r.chrome.password.select_all();
+            cx.notify();
+        }),
+        ("password shown", |r, _, cx| {
+            r.tabs.current_mut().unwrap().lock = Some(tabs::Lock::Asking);
+            r.chrome.input = chrome::Input::Password;
+            r.chrome.password.insert("guess");
+            r.chrome.password_shown = true;
+            cx.notify();
+        }),
+        ("password checking", |r, _, cx| {
+            r.tabs.current_mut().unwrap().lock = Some(tabs::Lock::Checking);
+            cx.notify();
+        }),
+        ("password cancelled", |r, _, cx| {
+            r.tabs.current_mut().unwrap().lock = Some(tabs::Lock::Cancelled);
             cx.notify();
         }),
     ];

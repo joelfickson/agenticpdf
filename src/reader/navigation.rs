@@ -105,6 +105,7 @@ impl Reader {
             self.tabs.entries[index].title()
         ));
         self.focus.focus(window);
+        self.sync_password_input();
         self.request(window);
         cx.notify();
     }
@@ -158,6 +159,7 @@ impl Reader {
             self.toggle_presentation(window, cx);
         }
         self.chrome.magnifier &= self.tabs.current().is_some();
+        self.sync_password_input();
         self.persist_recent(cx);
         cx.notify();
     }

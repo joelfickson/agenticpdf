@@ -1,5 +1,5 @@
 use super::{
-    Event, Job, OrganizeJob, SaveJob, SearchJob,
+    Event, Job, Locked, OrganizeJob, SaveJob, SearchJob,
     export::{self, FileJob, FileTask},
     library::bind,
     markup,
@@ -11,8 +11,8 @@ use anyhow::{Context, Result, bail};
 use parking_lot::{Condvar, Mutex};
 use pdfium_render::prelude::*;
 use std::{
-    collections::VecDeque,
-    path::Path,
+    collections::{HashMap, VecDeque},
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -31,6 +31,7 @@ struct Queue {
     organizing: Mutex<VecDeque<OrganizeJob>>,
     filing: Mutex<VecDeque<FileJob>>,
     closed: Mutex<Vec<u64>>,
+    unlocks: Mutex<Vec<(u64, PathBuf, String)>>,
     ready: Condvar,
     generation: AtomicU64,
     search_generation: AtomicU64,
@@ -46,6 +47,7 @@ impl Queue {
             organizing: Mutex::new(VecDeque::new()),
             filing: Mutex::new(VecDeque::new()),
             closed: Mutex::new(Vec::new()),
+            unlocks: Mutex::new(Vec::new()),
             ready: Condvar::new(),
             generation: AtomicU64::new(0),
             search_generation: AtomicU64::new(0),
@@ -89,6 +91,11 @@ impl Worker {
         self.0.ready.notify_one();
     }
 
+    pub fn unlock(&self, session: u64, path: PathBuf, password: String) {
+        let _pending = self.0.pending.lock();
+        self.0.unlocks.lock().push((session, path, password));
+    }
+
     pub fn submit(&self, mut job: Job) -> u64 {
         let mut pending = self.0.pending.lock();
         let generation = self.0.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -117,6 +124,16 @@ impl Worker {
         let _pending = self.0.pending.lock();
         self.0.filing.lock().push_back(job);
         self.0.ready.notify_one();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queued_unlocks(&self) -> Vec<(u64, String)> {
+        self.0
+            .unlocks
+            .lock()
+            .iter()
+            .map(|(session, _, password)| (*session, password.clone()))
+            .collect()
     }
 
     #[cfg(test)]
@@ -173,15 +190,42 @@ impl Drop for Worker {
 type Documents<'a> = VecDeque<(u64, PdfDocument<'a>)>;
 
 #[derive(Default)]
+struct Keys(HashMap<u64, (PathBuf, String)>);
+
+impl Keys {
+    fn session(&self, session: u64) -> Option<&str> {
+        self.0.get(&session).map(|(_, password)| password.as_str())
+    }
+
+    fn path(&self, path: &Path) -> Option<&str> {
+        self.0
+            .values()
+            .find(|(known, _)| known == path)
+            .map(|(_, password)| password.as_str())
+    }
+}
+
+#[derive(Default)]
 struct Open<'a> {
     cached: Documents<'a>,
     edited: Documents<'a>,
+    keys: Keys,
 }
 
 impl<'a> Open<'a> {
     fn forget(&mut self, session: u64) {
         self.cached.retain(|(open, _)| *open != session);
         self.edited.retain(|(open, _)| *open != session);
+    }
+
+    fn close(&mut self, session: u64) {
+        self.forget(session);
+        self.keys.0.remove(&session);
+    }
+
+    fn unlock(&mut self, session: u64, path: PathBuf, password: String) {
+        self.forget(session);
+        self.keys.0.insert(session, (path, password));
     }
 
     fn edit(
@@ -199,9 +243,7 @@ impl<'a> Open<'a> {
                 Some(entry) => entry,
                 None => (
                     session,
-                    engine.load_pdf_from_file(path, None).context(
-                        "Could not open this PDF. It may be damaged, password-protected, or inaccessible.",
-                    )?,
+                    super::load(engine, path, self.keys.session(session))?,
                 ),
             };
             self.edited.push_back(entry);
@@ -223,15 +265,14 @@ fn document<'a, 'b>(
     if let Some(index) = open.edited.iter().position(|(known, _)| *known == session) {
         return Ok(&open.edited[index].1);
     }
+    let password = open.keys.session(session);
     let documents = &mut open.cached;
     if let Some(index) = documents.iter().position(|(open, _)| *open == session) {
         if let Some(entry) = documents.remove(index) {
             documents.push_back(entry);
         }
     } else {
-        let document = engine.load_pdf_from_file(path, None).context(
-            "Could not open this PDF. It may be damaged, password-protected, or inaccessible.",
-        )?;
+        let document = super::load(engine, path, password)?;
         documents.push_back((session, document));
         while documents.len() > OPEN_DOCUMENTS {
             documents.pop_front();
@@ -276,6 +317,9 @@ fn run(queue: Arc<Queue>, sender: async_channel::Sender<Event>) {
                 return;
             }
             let closed = std::mem::take(&mut *queue.closed.lock());
+            for (session, path, password) in std::mem::take(&mut *queue.unlocks.lock()) {
+                documents.unlock(session, path, password);
+            }
             let saves = std::mem::take(&mut *queue.saves.lock());
             let organizing = std::mem::take(&mut *queue.organizing.lock());
             backlog.extend(std::mem::take(&mut *queue.filing.lock()));
@@ -288,7 +332,7 @@ fn run(queue: Arc<Queue>, sender: async_channel::Sender<Event>) {
             )
         };
         for session in &closed {
-            documents.forget(*session);
+            documents.close(*session);
         }
         if let Some(job) = search {
             active = Some(ActiveSearch {
@@ -379,8 +423,13 @@ fn run(queue: Arc<Queue>, sender: async_channel::Sender<Event>) {
         }
         for save in saves {
             documents.forget(save.session);
-            let result =
-                markup::save(engine, &save.path, &save.edits).map_err(|error| format!("{error:#}"));
+            let result = markup::save(
+                engine,
+                &save.path,
+                documents.keys.session(save.session),
+                &save.edits,
+            )
+            .map_err(|error| format!("{error:#}"));
             if sender
                 .send_blocking(Event::Saved {
                     session: save.session,
@@ -398,9 +447,13 @@ fn run(queue: Arc<Queue>, sender: async_channel::Sender<Event>) {
             if let Err(error) = render_job(engine, &mut documents, job, &current, &sender)
                 && current()
                 && sender
-                    .send_blocking(Event::Error {
-                        generation,
-                        message: format!("{error:#}"),
+                    .send_blocking(if error.is::<Locked>() {
+                        Event::Locked { generation }
+                    } else {
+                        Event::Error {
+                            generation,
+                            message: format!("{error:#}"),
+                        }
                     })
                     .is_err()
             {
@@ -435,9 +488,14 @@ fn run(queue: Arc<Queue>, sender: async_channel::Sender<Event>) {
             && let Some(job) = backlog.pop_front()
         {
             let started = match job.task {
-                FileTask::Combine { files, to } => Err(export::combine(engine, &files, &to)),
+                FileTask::Combine { files, to } => {
+                    Err(export::combine(engine, &files, &to, |file| {
+                        documents.keys.path(file)
+                    }))
+                }
                 FileTask::Export(export) => {
-                    export::Active::start(engine, job.id, export).map_err(Err)
+                    let password = documents.keys.path(&export.source).map(str::to_owned);
+                    export::Active::start(engine, job.id, export, password.as_deref()).map_err(Err)
                 }
             };
             match started {
@@ -934,6 +992,124 @@ mod tests {
             }
         }
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires PDFium installed by scripts/setup_pdfium.py"]
+    fn locked_documents_ask_until_the_right_password_and_keep_it_for_the_session() {
+        use crate::pdf::{
+            SaveJob,
+            markup::{Edit, Markup, MarkupKind, PageMarks},
+            text::TextRect,
+        };
+
+        let directory =
+            std::env::temp_dir().join(format!("agenticpdf-locked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let path = directory.join("locked.pdf");
+        std::fs::copy(fixtures.join("locked.pdf"), &path).unwrap();
+        let (worker, events) = Worker::start().unwrap();
+        let job = |session: u64, path: &Path| Job {
+            generation: 0,
+            path: path.to_path_buf(),
+            view: ViewKey {
+                session,
+                page: 0,
+                available_width: 300,
+                zoom: None,
+                scale: 100,
+            },
+            render_page: true,
+            extract_text: false,
+            thumbnails: vec![],
+            outline: false,
+            sizes: false,
+            nearby: vec![],
+            nearby_text: vec![],
+        };
+        let opened = |generation: u64| loop {
+            match next_event(&events) {
+                Event::Locked { generation: locked } if locked == generation => return false,
+                Event::Metadata {
+                    generation: known,
+                    count,
+                    ..
+                } if known == generation => {
+                    assert_eq!(count, 3);
+                    return true;
+                }
+                Event::Error { message, .. } => panic!("{message}"),
+                _ => {}
+            }
+        };
+
+        assert!(!opened(worker.submit(job(1, &path))));
+        worker.unlock(1, path.clone(), "not-it".into());
+        assert!(!opened(worker.submit(job(1, &path))));
+        worker.unlock(1, path.clone(), "fixture-pass".into());
+        assert!(opened(worker.submit(job(1, &path))));
+
+        for (session, name) in
+            (2..).zip(["reading.pdf", "outline.pdf", "selection.pdf", "links.pdf"])
+        {
+            assert!(opened_any(
+                &worker,
+                &events,
+                job(session, &fixtures.join(name))
+            ));
+        }
+        assert!(opened(worker.submit(job(1, &path))));
+
+        worker.save(SaveJob {
+            session: 1,
+            path: path.clone(),
+            edits: vec![Edit::Markup(Markup {
+                kind: MarkupKind::Highlight,
+                color: 0xf2c230,
+                quote: "marked".into(),
+                pages: vec![PageMarks {
+                    page: 0,
+                    rects: vec![TextRect {
+                        left: 0.1,
+                        top: 0.1,
+                        right: 0.4,
+                        bottom: 0.15,
+                    }],
+                }],
+            })],
+        });
+        loop {
+            match next_event(&events) {
+                Event::Saved { session: 1, result } => {
+                    result.unwrap();
+                    break;
+                }
+                Event::Error { message, .. } => panic!("{message}"),
+                _ => {}
+            }
+        }
+        assert!(opened(worker.submit(job(1, &path))));
+        assert!(!opened(worker.submit(job(9, &path))));
+
+        worker.close(1);
+        assert!(!opened(worker.submit(job(1, &path))));
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    fn opened_any(worker: &Worker, events: &async_channel::Receiver<Event>, job: Job) -> bool {
+        let generation = worker.submit(job);
+        loop {
+            match next_event(events) {
+                Event::Metadata {
+                    generation: known, ..
+                } if known == generation => return true,
+                Event::Locked { generation: known } if known == generation => return false,
+                Event::Error { message, .. } => panic!("{message}"),
+                _ => {}
+            }
+        }
     }
 
     #[test]

@@ -16,6 +16,33 @@ use std::{
 };
 pub(crate) use worker::Worker;
 
+#[derive(Debug)]
+pub struct Locked;
+
+impl std::fmt::Display for Locked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("This PDF is password-protected.")
+    }
+}
+
+impl std::error::Error for Locked {}
+
+pub(crate) fn load<'a>(
+    engine: &'a Pdfium,
+    path: &Path,
+    password: Option<&str>,
+) -> Result<PdfDocument<'a>> {
+    engine
+        .load_pdf_from_file(path, password)
+        .map_err(|error| match error {
+            PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
+                anyhow::Error::new(Locked)
+            }
+            other => anyhow::Error::new(other)
+                .context("Could not open this PDF. It may be damaged or inaccessible."),
+        })
+}
+
 pub struct Raster {
     pub bytes: Vec<u8>,
     pub width: u32,
@@ -127,6 +154,9 @@ pub enum Event {
         generation: u64,
         message: String,
     },
+    Locked {
+        generation: u64,
+    },
 }
 
 impl Event {
@@ -144,7 +174,8 @@ impl Event {
             | Self::Page { generation, .. }
             | Self::Thumbnail { generation, .. }
             | Self::ThumbnailFailed { generation, .. }
-            | Self::Error { generation, .. } => Some(*generation),
+            | Self::Error { generation, .. }
+            | Self::Locked { generation } => Some(*generation),
         }
     }
 }
