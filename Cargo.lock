@@ -77,32 +77,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "likoma"
-version = "0.3.0"
-dependencies = [
- "agent-client-protocol",
- "anyhow",
- "async-channel 2.5.0",
- "block",
- "gpui",
- "image",
- "objc",
- "parking_lot 0.13.0",
- "pathfinder_geometry",
- "pdfium-render",
- "rmcp",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smallvec",
- "tokio",
- "ureq",
- "winresource",
- "zed-font-kit",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3391,6 +3365,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "likoma"
+version = "0.3.0"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "async-channel 2.5.0",
+ "block",
+ "gpui",
+ "image",
+ "objc",
+ "parking_lot 0.13.0",
+ "pathfinder_geometry",
+ "pdfium-render",
+ "rmcp",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "smallvec",
+ "tokio",
+ "ureq",
+ "winresource",
+ "zed-font-kit",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5573,9 +5573,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.4"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "smol"
