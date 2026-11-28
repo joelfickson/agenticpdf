@@ -77,32 +77,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "likoma"
-version = "0.3.0"
-dependencies = [
- "agent-client-protocol",
- "anyhow",
- "async-channel 2.5.0",
- "block",
- "gpui",
- "image",
- "objc",
- "parking_lot 0.13.0",
- "pathfinder_geometry",
- "pdfium-render",
- "rmcp",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smallvec",
- "tokio",
- "ureq",
- "winresource",
- "zed-font-kit",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3388,6 +3362,32 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "likoma"
+version = "0.3.0"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "async-channel 2.5.0",
+ "block",
+ "gpui",
+ "image",
+ "objc",
+ "parking_lot 0.13.0",
+ "pathfinder_geometry",
+ "pdfium-render",
+ "rmcp",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "smallvec",
+ "tokio",
+ "ureq",
+ "winresource",
+ "zed-font-kit",
 ]
 
 [[package]]
