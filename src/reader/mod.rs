@@ -25,6 +25,7 @@ mod tabs;
 #[cfg(test)]
 mod tests;
 mod typeset;
+mod unlock;
 mod updates;
 mod view;
 mod viewing;
@@ -289,6 +290,13 @@ impl Reader {
         };
         match event {
             Event::Metadata { count, sizes, .. } => {
+                if tab.lock.take().is_some() {
+                    self.chrome.password.clear();
+                    self.chrome.password_shown = false;
+                    if self.chrome.input == chrome::Input::Password {
+                        self.chrome.input = chrome::Input::None;
+                    }
+                }
                 tab.count = count;
                 if let Some(sizes) = sizes
                     && tab.sizes.is_none()
@@ -351,7 +359,23 @@ impl Reader {
             }
             Event::Error { message, .. } => {
                 tab.error = Some(message);
+                tab.lock = None;
                 self.busy = false;
+            }
+            Event::Locked { .. } => {
+                let wrong = tab.lock == Some(tabs::Lock::Checking);
+                tab.lock = Some(if wrong {
+                    tabs::Lock::Wrong
+                } else {
+                    tabs::Lock::Asking
+                });
+                self.busy = false;
+                self.chrome.input = chrome::Input::Password;
+                if wrong {
+                    self.chrome.password.select_all();
+                } else {
+                    self.chrome.password.clear();
+                }
             }
             Event::Filed { .. }
             | Event::Organized { .. }

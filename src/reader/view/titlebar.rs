@@ -46,6 +46,9 @@ impl Reader {
                 .on_click(
                     cx.listener(move |this, _, window, cx| this.activate_tab(index, window, cx)),
                 )
+                .when(tab.lock.is_some(), |item| {
+                    item.child(icon(Icon::Lock, theme.faint).size(px(14.0)))
+                })
                 .child(div().flex_1().min_w_0().truncate().child(tab.title()))
                 .child(
                     if tab.modified() {

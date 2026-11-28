@@ -162,6 +162,8 @@ impl Reader {
         }
         if self.chrome.overlay != Overlay::None {
             self.set_overlay(Overlay::None, cx);
+        } else if self.chrome.input == Input::Password {
+            self.cancel_password(cx);
         } else if matches!(self.chrome.input, Input::Page | Input::Agent) {
             self.chrome.input = Input::None;
         } else if self.chrome.find_open {
@@ -201,6 +203,7 @@ impl Reader {
                     Input::Page => self.chrome.page_input.insert(&line),
                     Input::Agent => self.agent.composer.insert(&line),
                     Input::SignName => self.chrome.sign_name.insert(&line),
+                    Input::Password => self.chrome.password.insert(&line),
                     Input::None => false,
                 };
                 if edited && self.chrome.input == Input::Palette {
@@ -294,6 +297,21 @@ impl Reader {
                 }
                 FieldKey::Cancel => {
                     self.set_overlay(Overlay::None, cx);
+                    cx.stop_propagation();
+                }
+                _ => {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            },
+            Input::Password => match self.chrome.password.handle(keystroke) {
+                FieldKey::Ignored => {}
+                FieldKey::Submit => {
+                    self.submit_password(window, cx);
+                    cx.stop_propagation();
+                }
+                FieldKey::Cancel => {
+                    self.cancel_password(cx);
                     cx.stop_propagation();
                 }
                 _ => {

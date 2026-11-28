@@ -190,7 +190,11 @@ impl Reader {
         let Some(tab) = self.tabs.current() else {
             return;
         };
-        if tab.error.is_some() {
+        if tab.error.is_some()
+            || tab
+                .lock
+                .is_some_and(|lock| lock != super::tabs::Lock::Checking)
+        {
             return;
         }
         let width = self.available_width(window);

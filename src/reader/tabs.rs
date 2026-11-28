@@ -9,6 +9,14 @@ use std::{
     path::PathBuf,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Lock {
+    Asking,
+    Wrong,
+    Checking,
+    Cancelled,
+}
+
 pub(super) struct DocumentTab {
     pub session: u64,
     pub path: PathBuf,
@@ -21,6 +29,7 @@ pub(super) struct DocumentTab {
     pub sidebar_scroll: UniformListScrollHandle,
     pub failed_thumbnails: BTreeSet<usize>,
     pub error: Option<String>,
+    pub lock: Option<Lock>,
     pub sizes: Option<PageSizes>,
     pub column: Option<Rc<Column>>,
     pub follow_scroll: bool,
@@ -54,6 +63,7 @@ impl DocumentTab {
             sidebar_scroll: UniformListScrollHandle::new(),
             failed_thumbnails: BTreeSet::new(),
             error: None,
+            lock: None,
             sizes: None,
             column: None,
             follow_scroll: false,

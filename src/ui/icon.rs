@@ -26,6 +26,7 @@ pub(crate) enum Icon {
     Keyboard,
     Layout,
     List,
+    Lock,
     Lookup,
     Magnifier,
     Minus,
@@ -82,6 +83,7 @@ impl Icon {
             Self::Keyboard => "icons/keyboard.svg",
             Self::Layout => "icons/layout.svg",
             Self::List => "icons/list.svg",
+            Self::Lock => "icons/lock.svg",
             Self::Lookup => "icons/lookup.svg",
             Self::Magnifier => "icons/magnifier.svg",
             Self::Minus => "icons/minus.svg",
@@ -206,6 +208,10 @@ const ICONS: &[(&str, &[u8])] = &[
     (
         "icons/list.svg",
         include_bytes!("../../assets/icons/list.svg"),
+    ),
+    (
+        "icons/lock.svg",
+        include_bytes!("../../assets/icons/lock.svg"),
     ),
     (
         "icons/lookup.svg",

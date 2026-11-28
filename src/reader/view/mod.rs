@@ -12,6 +12,7 @@ mod settings;
 mod sidebar;
 mod text_layer;
 mod titlebar;
+mod unlock;
 mod updates;
 
 use super::{

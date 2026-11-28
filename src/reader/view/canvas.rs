@@ -40,6 +40,9 @@ impl Reader {
                     ),
                 )
                 .into_any_element()
+        } else if let Some(lock) = self.tabs.current().and_then(|tab| tab.lock) {
+            self.page_frames.borrow_mut().clear();
+            self.unlock(lock, cx)
         } else if let Some(column) = self.column(window) {
             self.column_element(&column, window, cx)
         } else if let Some(image) = &self.image {

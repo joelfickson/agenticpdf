@@ -552,11 +552,16 @@ impl Staged {
     }
 }
 
-pub(super) fn save(engine: &Pdfium, path: &Path, edits: &[Edit]) -> Result<()> {
+pub(super) fn save(
+    engine: &Pdfium,
+    path: &Path,
+    password: Option<&str>,
+    edits: &[Edit],
+) -> Result<()> {
     let staged = stage(path)?;
     let written = (|| -> Result<()> {
         let mut document = engine
-            .load_pdf_from_file(path, None)
+            .load_pdf_from_file(path, password)
             .context("The PDF could not be reopened for saving.")?;
         if !document.signatures().is_empty() {
             bail!(
@@ -698,7 +703,7 @@ mod tests {
                 }));
             }
         }
-        save(&engine, &path, &markups).unwrap();
+        save(&engine, &path, None, &markups).unwrap();
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
         {
             let document = engine.load_pdf_from_file(&path, None).unwrap();
@@ -746,7 +751,7 @@ mod tests {
         let mut permissions = fs::metadata(&path).unwrap().permissions();
         permissions.set_readonly(true);
         fs::set_permissions(&path, permissions).unwrap();
-        assert!(save(&engine, &path, &markups).is_err());
+        assert!(save(&engine, &path, None, &markups).is_err());
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
         fs::remove_dir_all(&directory).unwrap();
@@ -824,7 +829,7 @@ mod tests {
                 before.push(around.map(|rect| tint(&raster, &rect)));
             }
         }
-        save(&engine, &path, &edits).unwrap();
+        save(&engine, &path, None, &edits).unwrap();
         let document = engine.load_pdf_from_file(&path, None).unwrap();
         for index in 0..2 {
             let page = document.pages().get(index).unwrap();
@@ -891,6 +896,7 @@ mod tests {
         save(
             &engine,
             &path,
+            None,
             &[Edit::Stamp(Stamp {
                 page: 0,
                 bounds,
@@ -957,6 +963,7 @@ mod tests {
         save(
             &engine,
             &path,
+            None,
             &[Edit::Picture(Picture {
                 page: 0,
                 bounds,
@@ -1024,6 +1031,7 @@ mod tests {
         save(
             &engine,
             &path,
+            None,
             &[Edit::Picture(Picture {
                 page: 0,
                 bounds: over_text,
