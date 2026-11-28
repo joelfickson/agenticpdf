@@ -78,14 +78,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "agenticpdf"
+name = "likoma"
 version = "0.3.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
  "async-channel 2.5.0",
+ "block",
  "gpui",
  "image",
+ "objc",
  "parking_lot 0.13.0",
  "pathfinder_geometry",
  "pdfium-render",
